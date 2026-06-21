@@ -1,0 +1,96 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+env:
+  APP_ID: com.retrovault.app
+  APP_NAME: RetroVault
+  ZIP_NAME: retrovault.zip
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Décompresser le zip
+        run: |
+          set -e
+          ZIP="${ZIP_NAME}"
+          [ -f "$ZIP" ] || ZIP="$(ls -1 *.zip | head -n1)"
+          echo "Zip utilisé : $ZIP"
+          rm -rf _unzip www
+          mkdir _unzip
+          unzip -q "$ZIP" -d _unzip
+          INDEX="$(find _unzip -type f -name index.html | head -n1)"
+          if [ -z "$INDEX" ]; then echo "::error::index.html introuvable dans le zip"; exit 1; fi
+          ROOT="$(dirname "$INDEX")"
+          mkdir www
+          cp -a "$ROOT"/. www/
+          ls -la www
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java (JDK 21)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configurer Capacitor
+        run: |
+          set -e
+          npm init -y >/dev/null
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+          node -e "require('fs').writeFileSync('capacitor.config.json', JSON.stringify({appId: process.env.APP_ID, appName: process.env.APP_NAME, webDir: 'www', server: { androidScheme: 'https' }}, null, 2))"
+          npx cap add android
+          npx cap sync android
+
+      - name: Icône de l'app
+        continue-on-error: true
+        run: |
+          set -e
+          IM="convert"; command -v magick >/dev/null 2>&1 && IM="magick"
+          mkdir -p assets
+          $IM www/icons/icon-512-maskable.png -resize 1024x1024 assets/icon-foreground.png
+          $IM -size 1024x1024 xc:'#0a0a14' assets/icon-background.png
+          $IM www/icons/icon-512.png -resize 1024x1024 assets/icon-only.png
+          $IM www/icons/icon-512.png -resize 1100x1100 -background '#0a0a14' -gravity center -extent 2732x2732 assets/splash.png
+          cp assets/splash.png assets/splash-dark.png
+          npm install --no-save @capacitor/assets
+          npx capacitor-assets generate --android
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RetroVault-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publier en Release
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: RetroVault — APK (dernière build)
+          prerelease: true
+          files: android/app/build/outputs/apk/debug/app-debug.apk
