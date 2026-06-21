@@ -1,41 +1,50 @@
 name: Build APK
 
+# DÃ©compresse le zip de RetroVault et construit un APK Android (Capacitor).
+# Ã€ placer dans le dÃ©pÃ´t sous : .github/workflows/build-apk.yml
+# Le zip (ex. retrovault.zip) doit Ãªtre committÃ© Ã  la racine du dÃ©pÃ´t.
+
 on:
-  workflow_dispatch:
+  workflow_dispatch:            # bouton Â« Run workflow Â» dans l'onglet Actions
   push:
     branches: [ main ]
 
 permissions:
-  contents: write
+  contents: write              # pour publier l'APK dans une Release
 
 env:
-  APP_ID: com.retrovault.app
+  APP_ID: com.retrovault.app   # â† change-le si tu veux ton propre identifiant
   APP_NAME: RetroVault
-  ZIP_NAME: retrovault.zip
+  ZIP_NAME: retrovault.zip     # â† nom du zip committÃ© (sinon le 1er .zip trouvÃ©)
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # 1) RÃ©cupÃ©rer le dÃ©pÃ´t
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Décompresser le zip
+      # 2) DÃ©compresser le zip â†’ dossier web "www"
+      - name: DÃ©compresser le zip
         run: |
           set -e
           ZIP="${ZIP_NAME}"
           [ -f "$ZIP" ] || ZIP="$(ls -1 *.zip | head -n1)"
-          echo "Zip utilisé : $ZIP"
+          echo "Zip utilisÃ© : $ZIP"
           rm -rf _unzip www
           mkdir _unzip
           unzip -q "$ZIP" -d _unzip
+          # Localiser le dossier qui contient index.html (racine de la PWA)
           INDEX="$(find _unzip -type f -name index.html | head -n1)"
           if [ -z "$INDEX" ]; then echo "::error::index.html introuvable dans le zip"; exit 1; fi
           ROOT="$(dirname "$INDEX")"
+          echo "Racine web : $ROOT"
           mkdir www
           cp -a "$ROOT"/. www/
           ls -la www
 
+      # 3) Outils de build
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -50,20 +59,26 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Configurer Capacitor
+      # 4) Projet Capacitor + plateforme Android (+ accÃ¨s au stockage pour scanner les ROMs)
+      - name: Configurer Capacitor (+ stockage)
         run: |
           set -e
           npm init -y >/dev/null
-          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/filesystem@7
           node -e "require('fs').writeFileSync('capacitor.config.json', JSON.stringify({appId: process.env.APP_ID, appName: process.env.APP_NAME, webDir: 'www', server: { androidScheme: 'https' }}, null, 2))"
           npx cap add android
+          # Permissions de stockage + mode "legacy" â†’ lecture des ROMs sur tout le stockage
+          # avec une simple autorisation Ã  l'exÃ©cution (pas de rÃ©glage manuel "AccÃ¨s Ã  tous les fichiers").
+          node -e 'const fs=require("fs");const mp="android/app/src/main/AndroidManifest.xml";let m=fs.readFileSync(mp,"utf8");const names=["READ_EXTERNAL_STORAGE","MANAGE_EXTERNAL_STORAGE","READ_MEDIA_IMAGES","READ_MEDIA_VIDEO","READ_MEDIA_AUDIO"];let perms=names.map(function(p){return "    <uses-permission android:name=\"android.permission."+p+"\" />";}).join("\n");perms+="\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"29\" />\n";if(!m.includes("MANAGE_EXTERNAL_STORAGE"))m=m.replace(/(<manifest[^>]*>)/,"$1\n"+perms);if(!m.includes("requestLegacyExternalStorage"))m=m.replace("<application","<application android:requestLegacyExternalStorage=\"true\"");fs.writeFileSync(mp,m);const gp="android/variables.gradle";if(fs.existsSync(gp)){let g=fs.readFileSync(gp,"utf8");g=g.replace(/targetSdkVersion\s*=\s*\d+/,"targetSdkVersion = 29");fs.writeFileSync(gp,g);}console.log("Manifest + variables.gradle patchÃ©s (permissions stockage, legacy)");'
+          echo "----- AndroidManifest.xml -----"; sed -n "1,30p" android/app/src/main/AndroidManifest.xml
           npx cap sync android
 
-      - name: Icône de l'app
+      # 5) IcÃ´ne + splash personnalisÃ©s (best-effort : n'interrompt jamais le build)
+      - name: IcÃ´ne de l'app
         continue-on-error: true
         run: |
           set -e
-          IM="convert"; command -v magick >/dev/null 2>&1 && IM="magick"
+          IM="convert"; command -v magick >/dev/null 2>&1 && IM="magick"   # ImageMagick 6 ou 7
           mkdir -p assets
           $IM www/icons/icon-512-maskable.png -resize 1024x1024 assets/icon-foreground.png
           $IM -size 1024x1024 xc:'#0a0a14' assets/icon-background.png
@@ -73,23 +88,26 @@ jobs:
           npm install --no-save @capacitor/assets
           npx capacitor-assets generate --android
 
+      # 6) Construire l'APK debug (installable directement)
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
+      # 7a) RÃ©cupÃ©rer l'APK comme artefact de build
       - name: Upload artefact
         uses: actions/upload-artifact@v4
         with:
           name: RetroVault-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
+      # 7b) Publier l'APK dans une Release (lien direct tÃ©lÃ©chargeable au tÃ©lÃ©phone)
       - name: Publier en Release
         if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest
-          name: RetroVault — APK (dernière build)
+          name: RetroVault â€” APK (derniÃ¨re build)
           prerelease: true
           files: android/app/build/outputs/apk/debug/app-debug.apk
