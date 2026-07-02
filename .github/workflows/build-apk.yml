@@ -72,19 +72,28 @@ jobs:
           npx cap sync android
 
       # 5) Custom icon + splash (best effort: never fails the build)
+      # 5) App icon: write PNGs straight into the Android project (reliable, no @capacitor/assets)
       - name: App icon
         continue-on-error: true
         run: |
           set -e
-          IM="convert"; command -v magick >/dev/null 2>&1 && IM="magick"
-          mkdir -p assets
-          $IM www/icons/icon-512-maskable.png -resize 1024x1024 assets/icon-foreground.png
-          $IM -size 1024x1024 xc:'#0a0a14' assets/icon-background.png
-          $IM www/icons/icon-512.png -resize 1024x1024 assets/icon-only.png
-          $IM www/icons/icon-512.png -resize 1100x1100 -background '#0a0a14' -gravity center -extent 2732x2732 assets/splash.png
-          cp assets/splash.png assets/splash-dark.png
-          npm install --no-save @capacitor/assets
-          npx capacitor-assets generate --android
+          if ! command -v convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+          fi
+          IM=convert; command -v magick >/dev/null 2>&1 && IM=magick
+          echo "ImageMagick = $IM"
+          SRC=www/icons/icon-512.png
+          RES=android/app/src/main/res
+          if [ ! -f "$SRC" ]; then echo "::warning::icon-512.png missing, keeping default icon"; exit 0; fi
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            DIR="$RES/mipmap-${pair%%:*}"; SZ="${pair##*:}"
+            mkdir -p "$DIR"
+            $IM "$SRC" -resize ${SZ}x${SZ} "$DIR/ic_launcher.png"
+            cp "$DIR/ic_launcher.png" "$DIR/ic_launcher_round.png"
+          done
+          # Remove Capacitor's default adaptive icon so our PNGs are the ones displayed
+          rm -rf "$RES/mipmap-anydpi-v26"
+          echo "Launcher icons written:"; ls -la "$RES/mipmap-xxxhdpi/" || true
 
       # 6) Build the debug APK (directly installable)
       - name: Build APK
