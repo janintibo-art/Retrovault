@@ -1,111 +1,95 @@
-name: Build APK
-
-# Unzips the RetroVault zip and builds an Android APK (Capacitor).
-# Put this file in the repo at: .github/workflows/build-apk.yml
-# The zip (e.g. retrovault.zip) must be committed at the repo root.
+name: Construire l'APK
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# Force la distribution Gradle utilisée par le wrapper de cordova-android.
 env:
-  APP_ID: com.retrovault.app
-  APP_NAME: RetroVault
-  ZIP_NAME: retrovault.zip
+  CORDOVA_ANDROID_GRADLE_DISTRIBUTION_URL: https://services.gradle.org/distributions/gradle-8.7-all.zip
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1) Checkout repo
-      - name: Checkout
+      - name: Récupérer le dépôt
         uses: actions/checkout@v4
 
-      # 2) Unzip the zip into the web folder "www"
-      - name: Unzip web app
-        run: |
-          set -e
-          ZIP="${ZIP_NAME}"
-          [ -f "$ZIP" ] || ZIP="$(ls -1 *.zip | head -n1)"
-          echo "Using zip: $ZIP"
-          rm -rf _unzip www
-          mkdir _unzip
-          unzip -q "$ZIP" -d _unzip
-          INDEX="$(find _unzip -type f -name index.html | head -n1)"
-          if [ -z "$INDEX" ]; then echo "::error::index.html not found in zip"; exit 1; fi
-          ROOT="$(dirname "$INDEX")"
-          echo "Web root: $ROOT"
-          mkdir www
-          cp -a "$ROOT"/. www/
-          ls -la www
-
-      # 3) Build tools
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Setup Java JDK 21
+      - name: Installer Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: '17'
 
-      - name: Setup Android SDK
+      - name: Installer Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Installer le SDK Android
         uses: android-actions/setup-android@v3
 
-      # 4) Capacitor project + Android platform + storage access to scan ROMs
-      - name: Configure Capacitor and storage
+      - name: Forcer Gradle 8.7 (compatibilité cordova-android 13)
         run: |
-          set -e
-          npm init -y >/dev/null
-          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/filesystem@7
-          node -e "require('fs').writeFileSync('capacitor.config.json', JSON.stringify({appId: process.env.APP_ID, appName: process.env.APP_NAME, webDir: 'www', server: { androidScheme: 'https' }}, null, 2))"
-          npx cap add android
-          node -e 'const fs=require("fs");const mp="android/app/src/main/AndroidManifest.xml";let m=fs.readFileSync(mp,"utf8");const names=["READ_EXTERNAL_STORAGE","MANAGE_EXTERNAL_STORAGE","READ_MEDIA_IMAGES","READ_MEDIA_VIDEO","READ_MEDIA_AUDIO"];let perms=names.map(function(p){return "    <uses-permission android:name=\"android.permission."+p+"\" />";}).join("\n");perms+="\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"29\" />\n";if(!m.includes("MANAGE_EXTERNAL_STORAGE"))m=m.replace(/(<manifest[^>]*>)/,"$1\n"+perms);if(!m.includes("requestLegacyExternalStorage"))m=m.replace("<application","<application android:requestLegacyExternalStorage=\"true\"");fs.writeFileSync(mp,m);const gp="android/variables.gradle";if(fs.existsSync(gp)){let g=fs.readFileSync(gp,"utf8");g=g.replace(/targetSdkVersion\s*=\s*\d+/,"targetSdkVersion = 29");fs.writeFileSync(gp,g);}console.log("patched manifest and gradle");'
-          echo "----- AndroidManifest.xml -----"
-          sed -n "1,32p" android/app/src/main/AndroidManifest.xml
-          npx cap sync android
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
+          unzip -q -d "$HOME/gradle" /tmp/gradle.zip
+          echo "$HOME/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-      # 5) Custom icon + splash (best effort: never fails the build)
-      - name: App icon
-        continue-on-error: true
+      - name: Composants Android + licences
         run: |
-          set -e
-          IM="convert"; command -v magick >/dev/null 2>&1 && IM="magick"
-          mkdir -p assets
-          $IM www/icons/icon-512-maskable.png -resize 1024x1024 assets/icon-foreground.png
-          $IM -size 1024x1024 xc:'#0a0a14' assets/icon-background.png
-          $IM www/icons/icon-512.png -resize 1024x1024 assets/icon-only.png
-          $IM www/icons/icon-512.png -resize 1100x1100 -background '#0a0a14' -gravity center -extent 2732x2732 assets/splash.png
-          cp assets/splash.png assets/splash-dark.png
-          npm install --no-save @capacitor/assets
-          npx capacitor-assets generate --android
+          yes | sdkmanager --licenses || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      # 6) Build the debug APK (directly installable)
-      - name: Build APK
+      - name: Installer Cordova
+        run: npm install -g cordova@12
+
+      - name: Diagnostic des versions
         run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          java -version
+          node -v
+          cordova -v
+          which gradle && gradle -v || true
+          echo "ANDROID_HOME=$ANDROID_HOME"
 
-      # 7a) Upload the APK as a build artifact
-      - name: Upload artifact
+      - name: Préparer le projet Cordova
+        run: |
+          cordova create build com.fractales.atelier "Atelier de Fractales"
+          rm -rf build/www
+          mkdir -p build/www
+          cp index.html manifest.webmanifest sw.js build/www/
+          cp icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png icon-32.png build/www/
+          cp icon-512.png build/icon-512.png
+          cp config.xml build/config.xml
+
+      - name: Ajouter la plateforme Android
+        working-directory: build
+        run: cordova platform add android@13.0.0
+
+      - name: Construire l'APK (debug)
+        working-directory: build
+        run: cordova build android --verbose
+
+      - name: Localiser l'APK
+        id: apk
+        run: |
+          APK=$(find build -name "*.apk" | head -n 1)
+          echo "APK trouvé : $APK"
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Téléverser l'APK (artefact du run)
         uses: actions/upload-artifact@v4
         with:
-          name: RetroVault-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: atelier-fractales-apk
+          path: ${{ steps.apk.outputs.path }}
 
-      # 7b) Publish the APK in a Release (direct download link on the phone)
-      - name: Publish Release
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+      - name: Publier l'APK dans une Release
+        if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: apk-latest
-          name: RetroVault APK latest build
-          prerelease: true
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: build-${{ github.run_number }}
+          name: APK – build ${{ github.run_number }}
+          body: "APK de l'Atelier de Fractales (clé de debug, installation manuelle)."
+          files: ${{ steps.apk.outputs.path }}
