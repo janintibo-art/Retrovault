@@ -66,8 +66,13 @@ jobs:
           npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/filesystem@7
           node -e "require('fs').writeFileSync('capacitor.config.json', JSON.stringify({appId: process.env.APP_ID, appName: process.env.APP_NAME, webDir: 'www', server: { androidScheme: 'https' }}, null, 2))"
           npx cap add android
-          node -e 'const fs=require("fs");const mp="android/app/src/main/AndroidManifest.xml";let m=fs.readFileSync(mp,"utf8");const names=["READ_EXTERNAL_STORAGE","MANAGE_EXTERNAL_STORAGE","READ_MEDIA_IMAGES","READ_MEDIA_VIDEO","READ_MEDIA_AUDIO"];let perms=names.map(function(p){return "    <uses-permission android:name=\"android.permission."+p+"\" />";}).join("\n");perms+="\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"29\" />\n";if(!m.includes("MANAGE_EXTERNAL_STORAGE"))m=m.replace(/(<manifest[^>]*>)/,"$1\n"+perms);if(!m.includes("requestLegacyExternalStorage"))m=m.replace("<application","<application android:requestLegacyExternalStorage=\"true\"");fs.writeFileSync(mp,m);const gp="android/variables.gradle";if(fs.existsSync(gp)){let g=fs.readFileSync(gp,"utf8");g=g.replace(/targetSdkVersion\s*=\s*\d+/,"targetSdkVersion = 29");fs.writeFileSync(gp,g);}console.log("patched manifest and gradle");'
-          echo "----- AndroidManifest.xml -----"
+          node -e 'const fs=require("fs");const mp="android/app/src/main/AndroidManifest.xml";let m=fs.readFileSync(mp,"utf8");const names=["READ_EXTERNAL_STORAGE","MANAGE_EXTERNAL_STORAGE","READ_MEDIA_IMAGES","READ_MEDIA_VIDEO","READ_MEDIA_AUDIO"];let perms=names.map(function(p){return "    <uses-permission android:name=\"android.permission."+p+"\" />";}).join("\n");perms+="\n    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"29\" />\n";if(!m.includes("MANAGE_EXTERNAL_STORAGE"))m=m.replace(/(<manifest[^>]*>)/,"$1\n"+perms);if(!m.includes("requestLegacyExternalStorage"))m=m.replace("<application","<application android:requestLegacyExternalStorage=\"true\"");fs.writeFileSync(mp,m);const gp="android/variables.gradle";if(fs.existsSync(gp)){let g=fs.readFileSync(gp,"utf8");g=g.replace(/targetSdkVersion\s*=\s*\d+/,"targetSdkVersion = 29");fs.writeFileSync(gp,g);}const bp="android/app/build.gradle";if(fs.existsSync(bp)){let b=fs.readFileSync(bp,"utf8");b=b.replace(/targetSdkVersion[^\n]*/,"targetSdkVersion 29");fs.writeFileSync(bp,b);}console.log("patched manifest and gradle");'
+          echo "----- verify storage patch -----"
+          grep -q 'requestLegacyExternalStorage="true"' android/app/src/main/AndroidManifest.xml || { echo "::error::legacy flag missing in manifest"; exit 1; }
+          grep -q 'MANAGE_EXTERNAL_STORAGE' android/app/src/main/AndroidManifest.xml || { echo "::error::MANAGE_EXTERNAL_STORAGE missing"; exit 1; }
+          grep -Eq 'targetSdkVersion *= *29' android/variables.gradle || { echo "::error::variables.gradle targetSdk not 29"; exit 1; }
+          grep -Eq 'targetSdkVersion 29' android/app/build.gradle || { echo "::error::app build.gradle targetSdk not 29"; exit 1; }
+          echo "storage patch OK: targetSdk 29 + legacy + MANAGE_EXTERNAL_STORAGE"
           sed -n "1,32p" android/app/src/main/AndroidManifest.xml
           npx cap sync android
 
@@ -94,6 +99,16 @@ jobs:
           # Remove Capacitor's default adaptive icon so our PNGs are the ones displayed
           rm -rf "$RES/mipmap-anydpi-v26"
           echo "Launcher icons written:"; ls -la "$RES/mipmap-xxxhdpi/" || true
+          # Splash screen from the console icon (portrait + landscape)
+          $IM -size 1080x2160 radial-gradient:'#2d1c4e-#090912' /tmp/sp-bg.png
+          $IM /tmp/sp-bg.png \( "$SRC" -resize 480x480 \) -gravity center -composite /tmp/sp-port.png
+          $IM -size 2160x1080 radial-gradient:'#2d1c4e-#090912' /tmp/sl-bg.png
+          $IM /tmp/sl-bg.png \( "$SRC" -resize 420x420 \) -gravity center -composite /tmp/sp-land.png
+          find "$RES" -name "splash.png" | while read -r f; do
+            case "$f" in *land*) cp /tmp/sp-land.png "$f";; *) cp /tmp/sp-port.png "$f";; esac
+          done
+          mkdir -p "$RES/drawable"; cp /tmp/sp-port.png "$RES/drawable/splash.png"
+          echo "Splash written:"; find "$RES" -name splash.png | head -4
 
       # 6) Build the debug APK (directly installable)
       - name: Build APK
@@ -101,6 +116,11 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt 2>/dev/null | tail -1)
+          if [ -n "$AAPT" ]; then
+            echo "----- APK badging -----"
+            "$AAPT" dump badging app/build/outputs/apk/debug/app-debug.apk | grep -E "package:|sdkVersion|targetSdkVersion" || true
+          fi
 
       # 7a) Upload the APK as a build artifact
       - name: Upload artifact
