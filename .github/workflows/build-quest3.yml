@@ -44,8 +44,14 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$ANDROID_HOME" || { echo "::error::Android SDK missing from runner"; exit 1; }
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "Android SDK: $ANDROID_HOME"
+          ls -1 "$ANDROID_HOME/platforms" || true
 
       - name: Generate Quest 3 application
         shell: bash
