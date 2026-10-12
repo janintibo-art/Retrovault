@@ -1,0 +1,102 @@
+name: Build APK Quest 3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'retrovault.zip'
+      - 'quest3/**'
+      - '.github/workflows/build-quest3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-quest3:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract RetroVault
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f retrovault.zip
+          mkdir -p _unzip www
+          unzip -q retrovault.zip -d _unzip
+          INDEX="$(find _unzip -type f -name index.html | head -n 1)"
+          test -n "$INDEX" || { echo '::error::Aucun index.html dans retrovault.zip'; exit 1; }
+          ROOT="$(dirname "$INDEX")"
+          cp -a "$ROOT"/. www/
+          echo "Site RetroVault : $ROOT"
+          find www -maxdepth 2 -type f | head -80
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Quest 3 application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/filesystem@7
+          node -e "require('fs').writeFileSync('capacitor.config.json', JSON.stringify({appId:'com.retrovault.quest',appName:'RetroVault Quest',webDir:'www',server:{androidScheme:'https'}},null,2))"
+          npx cap add android
+          node quest3/prepare-quest.mjs
+          npx cap sync android
+
+      - name: Copy RetroVault icon
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -e
+          ICON=www/icons/icon-512.png
+          test -f "$ICON" || exit 0
+          if command -v magick >/dev/null 2>&1; then IM=magick; elif command -v convert >/dev/null 2>&1; then IM=convert; else exit 0; fi
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            IFS=: read -r DENSITY SIZE <<< "$pair"
+            DIR="android/app/src/main/res/mipmap-$DENSITY"
+            mkdir -p "$DIR"
+            "$IM" "$ICON" -resize "${SIZE}x${SIZE}" "$DIR/ic_launcher.png"
+            cp "$DIR/ic_launcher.png" "$DIR/ic_launcher_round.png"
+          done
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+
+      - name: Compile Quest APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../RetroVault-Quest3.apk
+          ls -lh ../RetroVault-Quest3.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RetroVault-Quest3-APK
+          path: RetroVault-Quest3.apk
+          if-no-files-found: error
+
+      - name: Publish direct download
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: quest3-latest
+          name: RetroVault Quest 3 - Derniere version
+          prerelease: true
+          files: RetroVault-Quest3.apk
