@@ -1,12 +1,12 @@
-/* RetroVault Quest V37. Ne s'execute que dans l'APK Quest, pas dans l'APK Android. */
+/* RetroVault Quest V38. Ne s'execute que dans l'APK Quest, pas dans l'APK Android. */
 (() => {
   'use strict';
-  if (window.__retroVaultQuestV37) return;
-  window.__retroVaultQuestV37 = true;
+  if (window.__retroVaultQuestV38) return;
+  window.__retroVaultQuestV38 = true;
 
   const storageKey = 'retrovault.quest.scale.v37';
   const host = document.createElement('div');
-  host.id = 'retrovault-quest-v37';
+  host.id = 'retrovault-quest-v38';
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;';
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `
@@ -43,6 +43,10 @@
       button[aria-pressed="true"] { background: #125a56; border-color: #54dcd1; }
       .line { border-top: 1px solid #495575; margin-top: 15px; padding-top: 12px; }
       .live { color: #81f2d1; font-variant-numeric: tabular-nums; }
+      .report { display: block; width: 100%; min-height: 158px; resize: vertical;
+        color: #ecf6ff; background: #0b1221; border: 1px solid #6884b0;
+        border-radius: 10px; padding: 10px; line-height: 1.4; font-size: 13px; }
+      .open:focus-visible, .report:focus-visible { outline: 3px solid #78e9db; outline-offset: 3px; }
     </style>
     <button id="launch" class="open" type="button" aria-controls="panel" aria-expanded="false" aria-label="Ouvrir les réglages Quest 3">⚙ Quest</button>
     <section id="panel" class="panel" aria-label="Réglages RetroVault Quest 3" hidden>
@@ -66,6 +70,16 @@
         <div class="btns"><button id="navigate" type="button" aria-pressed="false">Activer navigation</button></div>
         <p id="nav-status" class="secondary">Désactivée par défaut pour ne pas gêner les jeux.</p>
       </div>
+      <div class="line">
+        <h3>Diagnostic du casque</h3>
+        <p>Vérifier l'écran, WebGL, le stockage et les contrôleurs. Le rapport n'inclut ni fichiers ni noms de ROM.</p>
+        <div class="btns">
+          <button id="check" type="button">Lancer le diagnostic</button>
+          <button id="copy" type="button">Copier le rapport</button>
+        </div>
+        <textarea id="report" class="report" readonly aria-label="Rapport de diagnostic Quest 3" placeholder="Appuyer sur Lancer le diagnostic"></textarea>
+        <p id="copy-status" class="secondary" aria-live="polite">Le rapport peut aussi être sélectionné et copié manuellement.</p>
+      </div>
       <div class="line btns"><button id="close" type="button">Fermer les réglages</button></div>
     </section>`;
 
@@ -77,6 +91,7 @@
   let navigate = false;
   let frameId = 0;
   let prevA = false;
+  let prevB = false;
   let prevDirection = '';
   let lastMoveAt = 0;
   let lastDisplayAt = 0;
@@ -115,7 +130,9 @@
     return false;
   }
   function candidates() {
-    const nodes = document.querySelectorAll('a[href],button:not([disabled]),[role="button"],input:not([type="hidden"]):not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])');
+    const nodes = panelOpen
+      ? panel.querySelectorAll('button:not([disabled]),textarea')
+      : document.querySelectorAll('a[href],button:not([disabled]),[role="button"],input:not([type="hidden"]):not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])');
     return Array.from(nodes).filter(el => {
       const rect = el.getBoundingClientRect();
       const style = getComputedStyle(el);
@@ -125,7 +142,8 @@
   function nextTarget(dir) {
     const nodes = candidates();
     if (!nodes.length) return;
-    const focused = nodes.includes(document.activeElement) ? document.activeElement : null;
+    const active = panelOpen ? shadow.activeElement : document.activeElement;
+    const focused = nodes.includes(active) ? active : null;
     if (!focused) { nodes[0].focus({ preventScroll: true }); return; }
     const current = focused.getBoundingClientRect();
     const cx = current.left + current.width / 2;
@@ -173,6 +191,70 @@
     const axes = pad.axes.slice(0, 4).map(v => Number(v || 0).toFixed(2)).join(' / ');
     pressed.textContent = `Touches enfoncées : ${active.join(', ') || 'aucune'} · Axes : ${axes}`;
   }
+  function diagnostic() {
+    const results = [];
+    const add = (key, value) => results.push(key + ' : ' + value);
+    add('RetroVault Quest', 'V38 - application Android 2D (sans OpenXR)');
+    add('Date UTC', new Date().toISOString());
+    add('Fenêtre', window.innerWidth + ' x ' + window.innerHeight + ' pixels CSS');
+    add('Écran', screen.width + ' x ' + screen.height + ' pixels CSS');
+    add('Densité', window.devicePixelRatio || 'inconnue');
+    add('Zoom', Math.round(Number(document.body.style.zoom || '1') * 100) + ' %');
+    add('Mode paysage', window.innerWidth >= window.innerHeight ? 'oui' : 'non');
+    add('Entrée tactile', navigator.maxTouchPoints ?? 'inconnue');
+    add('Audio Web', (window.AudioContext || window.webkitAudioContext) ? 'API présente' : 'API absente');
+    try {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      add('WebGL', gl ? ((typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext) ? 'WebGL 2' : 'WebGL 1') : 'indisponible');
+      gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    } catch (err) { add('WebGL', 'indéterminé : ' + String(err.message || err)); }
+    try {
+      const key = 'rv_quest_diagnostic_temp';
+      localStorage.setItem(key, 'ok');
+      const correct = localStorage.getItem(key) === 'ok';
+      localStorage.removeItem(key);
+      add('Stockage local', correct ? 'lecture / écriture OK' : 'échec lecture / écriture');
+    } catch (_) { add('Stockage local', 'indisponible ou refusé'); }
+    const list = pads();
+    add('API manettes', list === null ? 'indisponible' : 'disponible');
+    if (list !== null) {
+      add('Manettes visibles', list.length);
+      list.forEach((pad, i) => {
+        add('Manette ' + (i + 1),
+          (pad.id || 'sans nom') + ' / ' + (pad.mapping || 'non standard') +
+          ' / ' + pad.buttons.length + ' boutons / ' + pad.axes.length + ' axes');
+      });
+    }
+    add('Navigation menus', navigate ? 'activée' : 'désactivée');
+    add('Émulation / ROM / sauvegardes', 'non vérifiées par cet outil');
+    add('Test réel du casque', 'à effectuer après installation');
+    $('report').value = results.join('\n');
+    $('copy-status').textContent = 'Rapport généré ; aucun fichier de jeu inspecté.';
+    return $('report').value;
+  }
+  async function copyReport() {
+    const content = $('report').value || diagnostic();
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('API presse-papiers indisponible');
+      await navigator.clipboard.writeText(content);
+      $('copy-status').textContent = 'Rapport copié !';
+    } catch (_) {
+      $('report').focus();
+      $('report').select();
+      // Solution de secours pour les WebView Android sans Clipboard API.
+      try {
+        if (document.execCommand('copy')) {
+          $('copy-status').textContent = 'Rapport copié !';
+          return;
+        }
+      } catch (_) { /* sélection manuelle possible */ }
+      $('copy-status').textContent = 'Rapport sélectionné. Copier manuellement le texte pour me l’envoyer.';
+    }
+  }
+  $('check').addEventListener('click', diagnostic);
+  $('copy').addEventListener('click', copyReport);
+
   function updateNavLabel() {
     $('navigate').setAttribute('aria-pressed', String(navigate));
     $('navigate').textContent = navigate ? 'Désactiver navigation' : 'Activer navigation';
@@ -188,25 +270,30 @@
       refresh(found);
       lastDisplayAt = time;
     }
-    if (navigate && !panelOpen && found && found.length) {
+    if (navigate && found && found.length) {
       const pad = found[0];
       const dir = direction(pad);
       const a = !!pad.buttons[0]?.pressed;
-      if (!hasCanvas()) {
+      const b = !!pad.buttons[1]?.pressed;
+      const allowed = panelOpen || !hasCanvas();
+      if (allowed) {
         if (dir && (dir !== prevDirection || time - lastMoveAt >= 250)) {
           nextTarget(dir);
           lastMoveAt = time;
         }
         if (a && !prevA) {
-          const target = document.activeElement;
-          if (candidates().includes(target) && target instanceof HTMLElement) target.click();
+          const target = panelOpen ? shadow.activeElement : document.activeElement;
+          if (candidates().includes(target) && target instanceof HTMLElement && target.tagName !== 'TEXTAREA') target.click();
         }
+        if (panelOpen && b && !prevB) setOpen(false);
       }
       prevDirection = dir;
       prevA = a;
+      prevB = b;
     } else {
       prevDirection = '';
       prevA = false;
+      prevB = false;
     }
     ensurePolling();
   }
@@ -225,6 +312,7 @@
   $('navigate').addEventListener('click', () => {
     navigate = !navigate;
     prevA = false;
+    prevB = false;
     prevDirection = '';
     updateNavLabel();
     ensurePolling();

@@ -64,6 +64,15 @@ jobs:
           node quest3/prepare-quest.mjs
           npx cap sync android
 
+      - name: Auto-tests Quest V38 (sans casque)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check quest3/prepare-quest.mjs
+          node --check quest3/quest-controls.js
+          node quest3/selftest-v38.mjs
+          node quest3/verify-v38.mjs
+
       - name: Copy RetroVault icon
         continue-on-error: true
         shell: bash
