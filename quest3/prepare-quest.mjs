@@ -21,7 +21,11 @@ if (/<meta\b[^>]*\bname=["']viewport["'][^>]*>/i.test(html)) {
 if (!html.includes('href="quest3.css"')) {
   html = html.replace(/<\/head>/i, '  <link rel="stylesheet" href="quest3.css">\n</head>');
 }
+if (!html.includes('src="quest-controls.js"')) {
+  html = html.replace(/<\/head>/i, '  <script src="quest-controls.js" defer></script>\n</head>');
+}
 write(indexPath, html);
+fs.copyFileSync('quest3/quest-controls.js', 'www/quest-controls.js');
 write('www/quest3.css', [
   '/* Quest 3 : mode panneau 2D, sans OpenXR */',
   'html { -webkit-text-size-adjust: 110%; text-size-adjust: 110%; }',
@@ -109,4 +113,4 @@ write(mainActivity, [
   '}',
   ''
 ].join('\n'));
-console.log('RetroVault Quest 3 : adaptation ecran 2D terminee.');
+console.log('RetroVault Quest 3 : adaptation ecran 2D et panneau manette termines.');
