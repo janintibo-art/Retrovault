@@ -270,7 +270,7 @@
       refresh(found);
       lastDisplayAt = time;
     }
-    if (navigate && found && found.length) {
+    if (navigate && !window.__retroVaultLibraryOpen && found && found.length) {
       const pad = found[0];
       const dir = direction(pad);
       const a = !!pad.buttons[0]?.pressed;

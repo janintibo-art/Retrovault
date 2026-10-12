@@ -24,8 +24,12 @@ if (!html.includes('href="quest3.css"')) {
 if (!html.includes('src="quest-controls.js"')) {
   html = html.replace(/<\/head>/i, '  <script src="quest-controls.js" defer></script>\n</head>');
 }
+if (!html.includes('src="quest-library.js"')) {
+  html = html.replace(/<\/head>/i, '  <script src="quest-library.js" defer></script>\n</head>');
+}
 write(indexPath, html);
 fs.copyFileSync('quest3/quest-controls.js', 'www/quest-controls.js');
+fs.copyFileSync('quest3/quest-library.js', 'www/quest-library.js');
 write('www/quest3.css', [
   '/* Quest 3 : mode panneau 2D, sans OpenXR */',
   'html { -webkit-text-size-adjust: 110%; text-size-adjust: 110%; }',

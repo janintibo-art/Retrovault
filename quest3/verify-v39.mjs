@@ -1,0 +1,20 @@
+// Vérifications sur le projet Android effectivement assemblé (après prepare-quest).
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const read=p=>fs.readFileSync(p,'utf8');
+const index=read('www/index.html');
+const script=read('www/quest-library.js');
+const quest=read('www/quest-controls.js');
+const manifest=read('android/app/src/main/AndroidManifest.xml');
+assert.equal((index.match(/src=["']quest-library\.js["']/g)||[]).length,1);
+assert.equal((index.match(/src=["']quest-controls\.js["']/g)||[]).length,1);
+assert.equal((index.match(/href=["']quest3\.css["']/g)||[]).length,1);
+assert.match(script,/Bibliothèque Quest/);
+assert.match(script,/type="file" multiple/);
+assert.match(script,/IndexedDB|indexedDB/);
+assert.match(script,/Jouer/);
+assert.match(quest,/__retroVaultLibraryOpen/);
+assert.match(manifest,/android:screenOrientation="landscape"/);
+assert.match(manifest,/android\.hardware\.touchscreen" android:required="false"/);
+console.log('QUEST V39 OK : bibliothèque injectée dans le site, sélecteur fichiers, gestion locale et manifeste.');
+console.log('Aucune preuve de lancement ROM ou de sélecteur effectif sur le casque : tests à effectuer.');

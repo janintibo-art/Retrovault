@@ -1,34 +1,29 @@
-# RetroVault Quest 3 — V38
+# RetroVault Quest 3 — V39 : bibliothèque et exploration de fichiers
 
-Application **Android 2D dans un panneau Horizon OS** pour Quest 3 / Quest 3S, distincte de l'application téléphone. Le moteur d'émulation est réutilisé depuis `retrovault.zip` (aucune ROM fournie). **Il ne s'agit pas d'une application VR OpenXR** et il n'y a pas encore de salle d'arcade 3D.
+RetroVault Quest est toujours une application Android **2D sur Horizon OS** et **pas** une application VR OpenXR. L'APK téléphone est conservé : le code V39 est ajouté uniquement à la compilation Quest. Le moteur original et ses émulateurs ne sont pas modifiés.
 
-## Nouveautés V38
+## Comment importer les jeux
 
-- **Réglages ⚙ Quest** : boutons et affichage Zoom 100 / 115 / 130 % conservés depuis V37.
-- **Navigation dans le panneau** (si l'option navigation manette est activée) : stick gauche ou croix directionnelle pour choisir, bouton A pour activer, bouton B pour fermer le panneau. Les menus de l'émulateur restent prioritaires en jeu ; la navigation s'arrête quand un grand canvas est visible.
-- **Diagnostic partageable** : `⚙ Quest` > `Lancer le diagnostic` > `Copier le rapport`. Vérifie les caractéristiques d'écran, WebGL, Web Audio, la disponibilité du stockage local, l'API Gamepad et les contrôleurs visibles. Rapport local, sans inspection des ROM, des sauvegardes ou de leurs noms.
-- Fallback si le presse-papiers n'est pas exposé : le texte du rapport reste sélectionnable et copiable dans le panneau.
-- **Auto-vérification GitHub** de l'assemblage : présence du script, du CSS, du mode paysage, du manifeste Android et de la MainActivity. Le workflow échoue avant la compilation si l'injection est cassée.
+1. Installer `RetroVault-Quest3.apk` issu du workflow **Build APK Quest 3**.
+2. Dans le casque, copier ses ROM personnelles dans **Téléchargements / Download** par le moyen de son choix.
+3. Démarrer RetroVault Quest et toucher **🎮 Jeux** (coin supérieur gauche).
+4. Choisir **📂 Parcourir les fichiers**. Le composant de fichiers Android de Capacitor (`input type=file`, système Android) demande de choisir une ROM. La sélection multiple est possible si le fournisseur de documents le prend en charge.
+5. Les fichiers choisis sont **copiés dans une bibliothèque IndexedDB propre à l'application**, rangés par familles selon leurs extensions. Rechercher, filtrer par console, mettre en favori ou retirer une copie locale.
+6. Pour **▶ Jouer**, ouvrir d'abord le menu de la console voulue dans l'interface RetroVault, puis dans **🎮 Jeux**, toucher le titre puis **▶ Jouer**. La bibliothèque tente de transmettre le fichier au champ HTML d'import du moteur original par `DataTransfer` et les événements `input`/`change`.
 
-## Limites importantes
+**Important** : ce dernier transfert est une intégration expérimentale. L'importeur du moteur original est distribué dans `retrovault.zip`, dont les sources ne sont pas modifiées ici. Si le champ d'import n'est pas présent, ou si le moteur ne répond pas aux événements HTML, le bouton indique le problème au lieu d'annoncer que le jeu est lancé. Dans ce cas, utiliser l'importateur d'origine et fournir un retour pour l'intégration directe.
 
-- Certains contrôleurs Touch peuvent être invisibles depuis la WebView Android. L'API Gamepad permet uniquement un diagnostic et une navigation expérimentale, **pas une compatibilité garantie avec tous les jeux**.
-- Les tests automatiques vérifient le **package et ses fichiers**, pas le rendu dans le casque ni l'exécution réelle d'une ROM.
-- Le diagnostic ne teste pas la lecture de fichiers ROM : le stockage local HTML n'est pas le stockage Android des ROM.
-- Aucun moteur VR OpenXR n'est utilisé dans ce build.
+## Comportement et limites
 
-## Compilation
+- Explorateur = **sélecteur de fichiers système Android**. Il ne parcourt pas librement tout l'espace de stockage et ne permet pas encore l'ajout automatique d'un dossier entier.
+- Le stockage des copies est dans **IndexedDB**, limité par la capacité/quota WebView. Les fichiers de plus de **512 Mo chacun** sont refusés pour protéger le stockage. Les gros jeux à images disque peuvent donc être exclus de cette V39.
+- Les catégories (NES, SNES, GB, GBA, Mega Drive, N64, etc.) sont déduites de l'extension. Il ne s'agit **pas d'une garantie de compatibilité des émulateurs**. `.zip` et `.7z` sont classés « Archives / arcade », sans décompression ajoutée.
+- Le fichier d'origine dans Download n'est pas supprimé lors du retrait de sa copie locale. En revanche, **désinstaller ou effacer les données de RetroVault Quest peut effacer sa bibliothèque**. Garder ses jeux originaux séparément.
+- Aucune ROM, BIOS, jeu commercial ou téléchargement de jeux n'est livré. Utiliser des fichiers que l'on a le droit d'utiliser.
+- Le lancement dépend du menu de la console en cours et de la WebView. Les contrôleurs Touch, le pointeur, le sélecteur, les sauvegardes, l'audio et les FPS doivent être testés sur **Meta Quest 3**.
 
-GitHub Actions > **Build APK Quest 3** (workflow indépendant) ou onglet Releases > `quest3-latest` > `RetroVault-Quest3.apk` après compilation verte. APK debug pour installation manuelle.
+## Vérification
 
-## Tests ce soir
+Avant compilation, GitHub Actions exécute les tests V38 et V39 (`selftest-v39.mjs`, `verify-v39.mjs`) et contrôle les ressources HTML/JS après préparation Android. Cela vérifie le package et la logique, **pas l'utilisation sur le casque**.
 
-1. Lancer RetroVault Quest 3, vérifier que ⚙ Quest apparaît en haut à droite.
-2. Vérifier les trois tailles et revenir à **100 %** avant d'essayer une ROM.
-3. Lancer le diagnostic, essayer **Copier le rapport** puis, si besoin, partager le texte ou une capture.
-4. Si une manette est détectée, activer **Navigation dans les menus**, tester croix/stick, A puis B dans le panneau.
-5. Vérifier la lecture d'une ROM personnelle, le son, la fluidité et les sauvegardes (pas vérifiés dans GitHub Actions).
-
-## Étape future
-
-Pour une vraie salle d'arcade immersive avec bornes 3D, il faudra réaliser un frontal natif OpenXR. Le jeu RetroVault HTML et les émulateurs devront alors être reliés à une surface VR, ce qui n'est pas accompli dans la V38.
+En cas d'erreur, fournir une capture du message dans **🎮 Jeux** et les journaux du workflow `Build APK Quest 3`.
